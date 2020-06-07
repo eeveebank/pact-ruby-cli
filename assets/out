@@ -1,0 +1,65 @@
+#!/bin/bash
+set -euo pipefail
+IFS=$'\n\t'
+
+exec 3>&1 # make stdout available as fd 3 for the result
+exec 1>&2 # redirect all output to stderr for logging
+
+source_dir=$1
+
+if [ -z "source_dir" ]; then
+  echo "usage: $0 <path/to/source>" >&2
+  exit 1
+fi
+
+# for jq
+PATH=/usr/local/bin:$PATH
+
+payload=$(mktemp /tmp/resource-in.XXXXXX)
+
+# load in the parameters passed to the resource
+#cat > $payload <&0
+# shellcheck disable=SC2006
+payload=`cat`
+
+function parse_param_from_file {
+  while read data; do
+    value="${data}"
+    value_file="${source_dir}/${value}"
+    test -s "${value_file}" && value=$(cat "${value_file}")
+    echo "${value}"
+  done
+}
+
+# source accessible with `$(jq -r '.source // ""' < $payload)`
+# params accessible with `$(jq -r '.params // ""' < $payload)`
+broker_base_url=$(echo "${payload}" | jq -r '.source.url')
+basic_auth_username=$(echo "${payload}" | jq -r '.source.basic_auth_username')
+basic_auth_password=$(echo "${payload}" | jq -r '.source.basic_auth_password')
+
+pacticipant=$(echo "${payload}" | jq -r '.params.pacticipant')
+tag=$(echo "${payload}" | jq -r '.params.tag')
+version=$(echo "${payload}" | jq -rc '.params.version_file // ""' | parse_param_from_file)
+
+test -z "${broker_base_url}" && echo '"url" source param required' && exit 1
+test -z "${pacticipant}" && echo '"pacticipant" param required' && exit 1
+test -z "${tag}" && echo '"tag" param required' && exit 1
+test -z "${version}" && echo '"version_file" param required' && exit 1
+
+pact-broker create-version-tag --broker-base-url="${broker_base_url}" \
+  -u "${basic_auth_username}" \
+  -p "${basic_auth_password}" \
+  --pacticipant="${pacticipant}" \
+  --tag="${tag}" \
+  --version="${version}"
+
+# output version and metadata to complete the build
+jq -n "{
+    version: {
+       commit: \"${version}\"
+    },
+    metadata: [
+        { name: \"commit\", value: \"${version}\" },
+        { name: \"tag\", value: \"${tag}\" }
+    ]
+}" >&3

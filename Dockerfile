@@ -49,6 +49,11 @@ RUN bundle install --without test development
 ADD docker/entrypoint.sh $HOME/entrypoint.sh
 ADD bin ./bin
 ADD lib ./lib
-ADD example/pacts ./example/pacts
 
-ENTRYPOINT ["/pact/entrypoint.sh"]
+# ======================================================================================================================
+# Mettle additions
+# ======================================================================================================================
+RUN apk add curl
+RUN curl -sL https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 -o /usr/local/bin/jq && chmod +x /usr/local/bin/jq
+ADD assets /opt/resource
+RUN chmod +x /opt/resource/*
